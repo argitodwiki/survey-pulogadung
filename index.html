@@ -548,11 +548,18 @@ function renderList(){
   filtered.forEach(e=>{
     const div = document.createElement('div');
     div.className = 'list-item';
+    const errLine = (!e.synced && e.lastError) ? `<div class="meta" style="color:var(--danger);margin-top:4px;">⚠️ ${e.lastError}</div>` : '';
+    const retryBtn = !e.synced ? `<button class="btn btn-outline btn-sm retry-btn" data-id="${e.localId}" style="margin-top:8px;">🔄 Coba Sync Lagi</button>` : '';
     div.innerHTML = `
       <div class="top"><span>${e.customerName}</span><span class="badge ${e.synced?'synced':'pending'}">${e.synced?'Synced':'Pending'}</span></div>
       <div class="meta">ID ${e.idCustomer} · FSR ${e.namaFsr} · ${new Date(e.createdAt).toLocaleString('id-ID')}</div>
+      ${errLine}
+      ${retryBtn}
     `;
     container.appendChild(div);
+  });
+  container.querySelectorAll('.retry-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=> syncOne(btn.dataset.id));
   });
 }
 document.getElementById('list-search').addEventListener('input', renderList);
@@ -567,9 +574,19 @@ document.getElementById('btn-save-url').addEventListener('click', async ()=>{
   status.textContent = '⏳ Menguji koneksi...';
   try{
     const res = await fetch(url, { method:'POST', body: JSON.stringify({ action:'ping' }) });
-    status.textContent = res.ok ? '✅ Koneksi berhasil, siap sync ke Google Drive' : '⚠️ URL tersimpan, tapi respon tidak OK. Cek deployment.';
+    const text = await res.text();
+    let data;
+    try{ data = JSON.parse(text); }catch(parseErr){
+      status.textContent = `⚠️ Respon server tidak dikenali (bukan JSON). Awal respon: "${text.substring(0,120)}"`;
+      return;
+    }
+    if(data.ok){
+      status.textContent = '✅ Koneksi berhasil, siap sync ke Google Drive';
+    }else{
+      status.textContent = `⚠️ Server merespon tapi ada error: ${data.error || 'unknown'}`;
+    }
   }catch(err){
-    status.textContent = '⚠️ URL tersimpan secara lokal. Sync akan dicoba saat submit data.';
+    status.textContent = `❌ Gagal konek: ${err.message}`;
   }
 });
 
@@ -595,6 +612,24 @@ document.getElementById('btn-clear-synced').addEventListener('click', ()=>{
 });
 
 /* ============ AUTO SYNC (best effort, on save) ============ */
+async function syncEntry(url, e){
+  try{
+    const res = await fetch(url, { method:'POST', body: JSON.stringify({ action:'submit', entry:e }) });
+    const text = await res.text();
+    let data;
+    try{ data = JSON.parse(text); }catch(parseErr){
+      e.lastError = `Respon server bukan JSON: ${text.substring(0,150)}`;
+      return false;
+    }
+    if(data.ok){ e.synced = true; delete e.lastError; return true; }
+    e.lastError = data.error || 'Server menolak tanpa keterangan';
+    return false;
+  }catch(err){
+    e.lastError = `Gagal kirim: ${err.message}`;
+    return false;
+  }
+}
+
 async function trySyncAll(){
   const url = localStorage.getItem('script_url');
   if(!url) return;
@@ -602,13 +637,25 @@ async function trySyncAll(){
   let changed = false;
   for(const e of entries){
     if(e.synced) continue;
-    try{
-      const res = await fetch(url, { method:'POST', body: JSON.stringify({ action:'submit', entry:e }) });
-      if(res.ok){ e.synced = true; changed = true; }
-    }catch(err){ /* offline, will retry later */ }
+    const ok = await syncEntry(url, e);
+    changed = true; // status/error may have changed even on failure
   }
   if(changed){ saveEntries(entries); renderList(); }
 }
+
+async function syncOne(localId){
+  const url = localStorage.getItem('script_url');
+  if(!url){ toast('⚠️ Isi dulu URL Apps Script di tab Pengaturan'); return; }
+  let entries = getEntries();
+  const e = entries.find(x=>x.localId===localId);
+  if(!e) return;
+  toast('⏳ Mencoba sync...');
+  const ok = await syncEntry(url, e);
+  saveEntries(entries);
+  renderList();
+  toast(ok ? '✅ Berhasil sync ke Drive' : '❌ Gagal, lihat pesan error di bawah data');
+}
+
 document.getElementById('btn-save').addEventListener('click', ()=> setTimeout(trySyncAll, 800));
 window.addEventListener('load', trySyncAll);
 
