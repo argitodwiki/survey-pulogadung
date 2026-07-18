@@ -535,31 +535,56 @@ document.getElementById('btn-gps').addEventListener('click', ()=>{
     status.textContent = '❌ GPS tidak didukung di perangkat ini';
     return;
   }
-  status.textContent = '📡 Mengambil lokasi...';
-  navigator.geolocation.getCurrentPosition(async (pos)=>{
-    const { latitude, longitude } = pos.coords;
-    gpsCoords = { lat: latitude, lng: longitude };
-    box.classList.add('ok');
-    status.innerHTML = `✅ <span class="gps-coords">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span>`;
-    status.innerHTML += ' <br><span style="color:var(--muted);">Mengambil alamat...</span>';
-    try{
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
-      const data = await res.json();
-      const a = data.address || {};
-      document.getElementById('f-provinsi').value = a.state || '';
-      document.getElementById('f-kota').value = a.city || a.county || a.city_district || '';
-      document.getElementById('f-kecamatan').value = a.suburb || a.city_district || a.subdistrict || '';
-      document.getElementById('f-kelurahan').value = a.village || a.neighbourhood || a.suburb || '';
-      document.getElementById('f-postal').value = a.postcode || '';
-      document.getElementById('f-alamat').value = data.display_name || '';
-      status.innerHTML = `✅ <span class="gps-coords">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span><br><span style="color:var(--accent2);">Alamat berhasil diambil, silakan periksa & sunting jika perlu</span>`;
-    }catch(err){
-      status.innerHTML += '<br><span style="color:var(--danger);">Gagal mengambil alamat otomatis, isi manual ya</span>';
-    }
-  }, (err)=>{
-    status.textContent = '❌ Gagal ambil GPS: ' + err.message;
-  }, { enableHighAccuracy:true, timeout:15000 });
+  attemptGps(true);
 });
+
+function attemptGps(highAccuracy){
+  const box = document.getElementById('gps-box');
+  const status = document.getElementById('gps-status');
+  status.textContent = highAccuracy ? '📡 Mengambil lokasi (GPS presisi tinggi)...' : '📡 Mencoba ulang dengan mode lebih cepat...';
+  navigator.geolocation.getCurrentPosition(
+    (pos)=> onGpsSuccess(pos, box, status),
+    (err)=> onGpsError(err, box, status, highAccuracy),
+    { enableHighAccuracy: highAccuracy, timeout: 30000, maximumAge: 10000 }
+  );
+}
+
+async function onGpsSuccess(pos, box, status){
+  const { latitude, longitude } = pos.coords;
+  gpsCoords = { lat: latitude, lng: longitude };
+  box.classList.add('ok');
+  status.innerHTML = `✅ <span class="gps-coords">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span>`;
+  status.innerHTML += ' <br><span style="color:var(--muted);">Mengambil alamat...</span>';
+  try{
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
+    const data = await res.json();
+    const a = data.address || {};
+    document.getElementById('f-provinsi').value = a.state || '';
+    document.getElementById('f-kota').value = a.city || a.county || a.city_district || '';
+    document.getElementById('f-kecamatan').value = a.suburb || a.city_district || a.subdistrict || '';
+    document.getElementById('f-kelurahan').value = a.village || a.neighbourhood || a.suburb || '';
+    document.getElementById('f-postal').value = a.postcode || '';
+    document.getElementById('f-alamat').value = data.display_name || '';
+    status.innerHTML = `✅ <span class="gps-coords">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span><br><span style="color:var(--accent2);">Alamat berhasil diambil, silakan periksa & sunting jika perlu</span>`;
+  }catch(err){
+    status.innerHTML += '<br><span style="color:var(--danger);">Gagal mengambil alamat otomatis, isi manual ya</span>';
+  }
+}
+
+function onGpsError(err, box, status, wasHighAccuracy){
+  // Timeout di percobaan pertama (presisi tinggi) -> otomatis coba ulang sekali dengan mode lebih cepat/network-based
+  if(err.code === 3 && wasHighAccuracy){
+    attemptGps(false);
+    return;
+  }
+  if(err.code === 1){
+    status.innerHTML = '❌ Izin lokasi ditolak untuk halaman ini.<br><span style="color:var(--muted);font-size:12px;">Buka menu titik-tiga browser \u2192 Site settings/Info situs \u2192 cari "Location" \u2192 ubah ke "Allow". Ini beda dari izin lokasi HP secara umum.</span>';
+  }else if(err.code === 2){
+    status.innerHTML = '❌ Lokasi tidak tersedia.<br><span style="color:var(--muted);font-size:12px;">Pastikan GPS/Lokasi di HP aktif (mode High Accuracy), lalu coba lagi.</span>';
+  }else{
+    status.innerHTML = '❌ Gagal ambil GPS: sinyal lemah/timeout.<br><span style="color:var(--muted);font-size:12px;">Coba pindah ke area terbuka (luar ruangan/dekat jendela) lalu tekan tombol Ambil Lokasi GPS lagi.</span>';
+  }
+}
 
 /* ============ PHOTOS ============ */
 document.querySelectorAll('.photo-box').forEach(box=>{
