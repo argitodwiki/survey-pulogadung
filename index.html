@@ -155,19 +155,19 @@ textarea{min-height:70px;resize:vertical;}
         <input type="text" id="f-pic" placeholder="Nama PIC / pemilik toko">
       </div>
       <div class="field">
-        <label>No. HP</label>
+        <label id="f-hp-label">No. HP</label>
         <input type="tel" inputmode="numeric" id="f-hp" placeholder="08xxxxxxxxxx">
         <div class="warn-box" id="hp-error" style="display:none;">⚠️ No HP harus diawali angka 0, contoh: 081312341234 (bukan 6281312341234)</div>
       </div>
       <div class="field">
-        <label>NIK</label>
+        <label id="f-nik-label">NIK</label>
         <input type="tel" inputmode="numeric" id="f-nik" placeholder="16 digit sesuai KTP" maxlength="16">
         <div class="warn-box" id="nik-error" style="display:none;">⚠️ NIK harus 16 digit angka</div>
       </div>
     </div>
 
     <div class="card">
-      <h2>Lokasi</h2>
+      <h2>Lokasi<span id="f-gps-label"> <span class="req">*</span></span></h2>
       <div class="gps-box" id="gps-box">
         <span id="gps-status">📡 Koordinat belum diambil</span>
       </div>
@@ -209,6 +209,7 @@ textarea{min-height:70px;resize:vertical;}
           <div class="lbl-wrap"><div class="ic">🏪</div><div class="lbl">Foto Kunjungan<br><span style="color:var(--muted);font-size:11px;">Tap untuk foto</span></div></div>
         </div>
       </div>
+      <div class="hint" id="foto-kunjungan-hint" style="display:none;color:var(--warn);margin-top:8px;">📍 Wajib: ambil Foto Kunjungan langsung dari kamera dengan lokasi/geotag aktif di HP</div>
       <input type="file" id="file-camera" accept="image/*" capture="environment" style="display:none;">
       <input type="file" id="file-gallery" accept="image/*" style="display:none;">
     </div>
@@ -309,13 +310,25 @@ let photos = { ktp: null, kunjungan: null };
 let gpsCoords = null;
 let selectedCustomer = null;
 let picRequired = false;
+let gpsRequired = true;
+let hpRequired = false;
+let nikRequired = false;
+let fotoKunjunganRequired = false;
+
 const PHONE_UPDATE_ITEM = 'Minta nomor HP/Telepon customer';
+const LATLNG_UPDATE_ITEM = 'Perbaiki data alamat dan Latitude/Longitude';
+const KTP_UPDATE_ITEM = 'Perbaiki & Upload ulang KTP/NPWP';
+const GEOTAG_UPDATE_ITEM = 'Foto Outlet menggunakan Geotag';
 
 /* ============ UPDATE DATA NOTICE ============ */
 function showUpdateNotice(c){
   const wrap = document.getElementById('update-notice-wrap');
   const listEl = document.getElementById('update-notice-text');
   const picLabel = document.getElementById('f-pic-label');
+  const gpsLabel = document.getElementById('f-gps-label');
+  const hpLabel = document.getElementById('f-hp-label');
+  const nikLabel = document.getElementById('f-nik-label');
+  const fotoHint = document.getElementById('foto-kunjungan-hint');
   listEl.innerHTML = '';
   if(c && Array.isArray(c.update) && c.update.length > 0){
     c.update.forEach(item=>{
@@ -327,8 +340,23 @@ function showUpdateNotice(c){
   }else{
     wrap.style.display = 'none';
   }
-  picRequired = !!(c && Array.isArray(c.update) && c.update.includes(PHONE_UPDATE_ITEM));
+
+  // Wajib isi mengikuti FOKUS jenis update yang dipilih FSR (filter dropdown).
+  // Kalau FSR tidak pilih filter spesifik (Semua Toko), fallback ke seluruh kebutuhan toko ini.
+  const focusFilter = updateFilter.value;
+  const itemsToCheck = focusFilter ? [focusFilter] : ((c && c.update) || []);
+  picRequired = itemsToCheck.includes(PHONE_UPDATE_ITEM);
+  hpRequired = itemsToCheck.includes(PHONE_UPDATE_ITEM);
+  gpsRequired = itemsToCheck.includes(LATLNG_UPDATE_ITEM);
+  nikRequired = itemsToCheck.includes(KTP_UPDATE_ITEM);
+  fotoKunjunganRequired = itemsToCheck.includes(GEOTAG_UPDATE_ITEM);
+
+  hpLabel.innerHTML = hpRequired ? 'No. HP <span class="req">*</span>' : 'No. HP';
+  nikLabel.innerHTML = nikRequired ? 'NIK <span class="req">*</span>' : 'NIK';
+  fotoHint.style.display = fotoKunjunganRequired ? 'block' : 'none';
+
   picLabel.innerHTML = picRequired ? 'PIC Toko <span class="req">*</span>' : 'PIC Toko';
+  if(gpsLabel) gpsLabel.innerHTML = gpsRequired ? ' <span class="req">*</span>' : '';
 }
 
 /* ============ NAV ============ */
@@ -582,10 +610,13 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
   const fsr = fsrSelect.value;
   if(!fsr){ toast('⚠️ Pilih Nama FSR dulu'); return; }
   if(!selectedCustomer){ toast('⚠️ Pilih ID Customer dulu'); return; }
-  if(!gpsCoords){ toast('⚠️ Ambil koordinat GPS dulu'); return; }
+  if(gpsRequired && !gpsCoords){ toast('⚠️ Ambil koordinat GPS dulu (wajib untuk toko/filter ini)'); return; }
   if(!validateNik()){ toast('⚠️ NIK harus 16 digit angka'); return; }
   if(!validateHp()){ toast('⚠️ No HP harus diawali angka 0'); return; }
   if(picRequired && document.getElementById('f-pic').value.trim().length === 0){ toast('⚠️ PIC Toko wajib diisi untuk toko ini'); return; }
+  if(hpRequired && document.getElementById('f-hp').value.trim().length === 0){ toast('⚠️ No HP wajib diisi untuk toko ini'); return; }
+  if(nikRequired && document.getElementById('f-nik').value.trim().length === 0){ toast('⚠️ NIK wajib diisi untuk toko ini'); return; }
+  if(fotoKunjunganRequired && !photos.kunjungan){ toast('⚠️ Foto Kunjungan wajib diambil untuk toko ini'); return; }
 
   isSaving = true;
   const saveBtn = document.getElementById('btn-save');
@@ -603,8 +634,8 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
     picToko: document.getElementById('f-pic').value,
     noHp: document.getElementById('f-hp').value,
     nik: document.getElementById('f-nik').value,
-    gpsLat: gpsCoords.lat,
-    gpsLng: gpsCoords.lng,
+    gpsLat: gpsCoords ? gpsCoords.lat : '',
+    gpsLng: gpsCoords ? gpsCoords.lng : '',
     provinsi: document.getElementById('f-provinsi').value,
     kota: document.getElementById('f-kota').value,
     kecamatan: document.getElementById('f-kecamatan').value,
@@ -630,7 +661,15 @@ function resetForm(){
   saveBtn.disabled = false;
   saveBtn.textContent = '💾 Simpan Data Toko';
   picRequired = false;
+  gpsRequired = true;
+  hpRequired = false;
+  nikRequired = false;
+  fotoKunjunganRequired = false;
+  document.getElementById('f-gps-label').innerHTML = ' <span class="req">*</span>';
   document.getElementById('f-pic-label').innerHTML = 'PIC Toko';
+  document.getElementById('f-hp-label').innerHTML = 'No. HP';
+  document.getElementById('f-nik-label').innerHTML = 'NIK';
+  document.getElementById('foto-kunjungan-hint').style.display = 'none';
   nikError.style.display = 'none';
   hpError.style.display = 'none';
   fsrSelect.value = '';
