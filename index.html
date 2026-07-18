@@ -2,6 +2,9 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1f2e">
@@ -122,6 +125,13 @@ textarea{min-height:70px;resize:vertical;}
 
     <div class="card">
       <h2>Data Toko</h2>
+      <div class="field">
+        <label>Filter Jenis Update Data</label>
+        <select id="f-update-filter" disabled>
+          <option value="">— Pilih Nama FSR dulu —</option>
+        </select>
+        <div class="hint">Opsional — pilih untuk mempersempit daftar toko sesuai jenis data yang perlu diperbaiki</div>
+      </div>
       <div class="field">
         <label>ID Customer <span class="req">*</span></label>
         <div class="search-wrap">
@@ -354,6 +364,16 @@ document.getElementById('fsr-summary').textContent =
 const custSearch = document.getElementById('f-cust-search');
 const custList = document.getElementById('cust-list');
 const custCountHint = document.getElementById('cust-count-hint');
+const updateFilter = document.getElementById('f-update-filter');
+
+function currentFsrCustomers(){
+  const fsr = fsrSelect.value;
+  if(!fsr) return [];
+  const filterVal = updateFilter.value;
+  const all = FSR_DATA[fsr].customers;
+  if(!filterVal) return all;
+  return all.filter(c => Array.isArray(c.update) && c.update.includes(filterVal));
+}
 
 fsrSelect.addEventListener('change', ()=>{
   const fsr = fsrSelect.value;
@@ -366,12 +386,41 @@ fsrSelect.addEventListener('change', ()=>{
     custSearch.disabled = true;
     custSearch.placeholder = 'Pilih Nama FSR dulu...';
     custCountHint.textContent = '';
+    updateFilter.disabled = true;
+    updateFilter.innerHTML = '<option value="">— Pilih Nama FSR dulu —</option>';
     return;
   }
   document.getElementById('f-tipe').value = FSR_DATA[fsr].tipe;
   custSearch.disabled = false;
   custSearch.placeholder = 'Ketik ID atau nama toko untuk cari...';
+
+  // Bangun ulang pilihan filter jenis update, khusus untuk toko-toko FSR ini saja
+  const typeSet = new Set();
+  FSR_DATA[fsr].customers.forEach(c=>{
+    (c.update || []).forEach(item => typeSet.add(item));
+  });
+  updateFilter.innerHTML = '<option value="">— Semua Toko —</option>';
+  Array.from(typeSet).sort().forEach(item=>{
+    const opt = document.createElement('option');
+    opt.value = item;
+    opt.textContent = item;
+    updateFilter.appendChild(opt);
+  });
+  updateFilter.disabled = false;
+
   custCountHint.textContent = `${FSR_DATA[fsr].customers.length} toko tersedia untuk FSR ini`;
+});
+
+updateFilter.addEventListener('change', ()=>{
+  selectedCustomer = null;
+  document.getElementById('f-cust-name').value = '';
+  custSearch.value = '';
+  showUpdateNotice(null);
+  custList.classList.remove('show');
+  const count = currentFsrCustomers().length;
+  custCountHint.textContent = updateFilter.value
+    ? `${count} toko cocok dengan filter ini`
+    : `${count} toko tersedia untuk FSR ini`;
 });
 
 function renderCustList(items){
@@ -404,7 +453,7 @@ custSearch.addEventListener('input', ()=>{
   document.getElementById('f-cust-name').value = '';
   showUpdateNotice(null);
   if(q.length === 0){ custList.classList.remove('show'); return; }
-  const items = FSR_DATA[fsr].customers.filter(c=>
+  const items = currentFsrCustomers().filter(c=>
     c.id.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
   );
   renderCustList(items);
@@ -412,7 +461,7 @@ custSearch.addEventListener('input', ()=>{
 custSearch.addEventListener('focus', ()=>{
   const fsr = fsrSelect.value;
   if(fsr && custSearch.value.trim().length===0){
-    renderCustList(FSR_DATA[fsr].customers);
+    renderCustList(currentFsrCustomers());
   }
 });
 document.addEventListener('click', (e)=>{
@@ -586,6 +635,9 @@ function resetForm(){
   hpError.style.display = 'none';
   fsrSelect.value = '';
   document.getElementById('f-tipe').value = '';
+  updateFilter.value = '';
+  updateFilter.disabled = true;
+  updateFilter.innerHTML = '<option value="">— Pilih Nama FSR dulu —</option>';
   custSearch.value = '';
   custSearch.disabled = true;
   custSearch.placeholder = 'Pilih Nama FSR dulu...';
