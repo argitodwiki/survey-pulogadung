@@ -50,6 +50,7 @@ textarea{min-height:70px;resize:vertical;}
 .search-item:hover .sid{color:#e8f0ff;}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;border-radius:11px;
   border:none;font-size:14.5px;font-weight:600;cursor:pointer;}
+.btn:disabled{opacity:.6;cursor:not-allowed;}
 .btn-primary{background:var(--accent);color:#fff;}
 .btn-outline{background:transparent;border:1px solid var(--border);color:var(--text);}
 .btn-ghost{background:var(--card2);color:var(--text);}
@@ -146,6 +147,7 @@ textarea{min-height:70px;resize:vertical;}
       <div class="field">
         <label>No. HP</label>
         <input type="tel" inputmode="numeric" id="f-hp" placeholder="08xxxxxxxxxx">
+        <div class="warn-box" id="hp-error" style="display:none;">⚠️ No HP harus diawali angka 0, contoh: 081312341234 (bukan 6281312341234)</div>
       </div>
       <div class="field">
         <label>NIK</label>
@@ -436,6 +438,18 @@ function validateNik(){
 nikInput.addEventListener('input', validateNik);
 nikInput.addEventListener('blur', validateNik);
 
+/* ============ NO HP VALIDATION (harus diawali angka 0) ============ */
+const hpInput = document.getElementById('f-hp');
+const hpError = document.getElementById('hp-error');
+function validateHp(){
+  const val = hpInput.value.trim();
+  const isValid = val.length === 0 || val.charAt(0) === '0';
+  hpError.style.display = isValid ? 'none' : 'block';
+  return isValid;
+}
+hpInput.addEventListener('input', validateHp);
+hpInput.addEventListener('blur', validateHp);
+
 /* ============ GPS + REVERSE GEOCODE ============ */
 document.getElementById('btn-gps').addEventListener('click', ()=>{
   const box = document.getElementById('gps-box');
@@ -513,13 +527,21 @@ function saveEntries(entries){
   localStorage.setItem('survey_entries', JSON.stringify(entries));
 }
 
+let isSaving = false;
 document.getElementById('btn-save').addEventListener('click', ()=>{
+  if(isSaving) return;
   const fsr = fsrSelect.value;
   if(!fsr){ toast('⚠️ Pilih Nama FSR dulu'); return; }
   if(!selectedCustomer){ toast('⚠️ Pilih ID Customer dulu'); return; }
   if(!gpsCoords){ toast('⚠️ Ambil koordinat GPS dulu'); return; }
   if(!validateNik()){ toast('⚠️ NIK harus 16 digit angka'); return; }
+  if(!validateHp()){ toast('⚠️ No HP harus diawali angka 0'); return; }
   if(picRequired && document.getElementById('f-pic').value.trim().length === 0){ toast('⚠️ PIC Toko wajib diisi untuk toko ini'); return; }
+
+  isSaving = true;
+  const saveBtn = document.getElementById('btn-save');
+  saveBtn.disabled = true;
+  saveBtn.textContent = '⏳ Menyimpan...';
 
   const entry = {
     localId: 'e' + Date.now(),
@@ -554,9 +576,14 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
 });
 
 function resetForm(){
+  isSaving = false;
+  const saveBtn = document.getElementById('btn-save');
+  saveBtn.disabled = false;
+  saveBtn.textContent = '💾 Simpan Data Toko';
   picRequired = false;
   document.getElementById('f-pic-label').innerHTML = 'PIC Toko';
   nikError.style.display = 'none';
+  hpError.style.display = 'none';
   fsrSelect.value = '';
   document.getElementById('f-tipe').value = '';
   custSearch.value = '';
