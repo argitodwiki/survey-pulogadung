@@ -604,16 +604,39 @@ document.getElementById('opt-gallery').addEventListener('click', ()=>{
   document.getElementById('photo-modal').classList.remove('show');
   document.getElementById('file-gallery').click();
 });
+function compressImage(dataUrl, maxWidth){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      let { width, height } = img;
+      if(width > maxWidth){
+        height = Math.round(height * (maxWidth / width));
+        width = maxWidth;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = ()=> resolve(dataUrl); // gagal kompres, pakai versi asli
+    img.src = dataUrl;
+  });
+}
+
 function handleFile(e){
   const file = e.target.files[0];
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = (ev)=>{
-    photos[currentPhotoTarget] = ev.target.result;
+  reader.onload = async (ev)=>{
     const box = document.getElementById(`photo-${currentPhotoTarget}`);
-    box.classList.add('has-img');
     const label = currentPhotoTarget === 'ktp' ? 'Foto KTP' : 'Foto Kunjungan';
-    box.innerHTML = `<img src="${ev.target.result}"><div class="lbl-wrap" style="position:relative;z-index:2;"><div class="lbl">✅ ${label}</div></div>`;
+    box.innerHTML = `<div class="lbl-wrap"><div class="lbl">⏳ Memproses foto...</div></div>`;
+    const compressed = await compressImage(ev.target.result, 1280);
+    photos[currentPhotoTarget] = compressed;
+    box.classList.add('has-img');
+    box.innerHTML = `<img src="${compressed}"><div class="lbl-wrap" style="position:relative;z-index:2;"><div class="lbl">✅ ${label}</div></div>`;
   };
   reader.readAsDataURL(file);
   e.target.value = '';
@@ -675,7 +698,16 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
 
   const entries = getEntries();
   entries.push(entry);
-  saveEntries(entries);
+  try{
+    saveEntries(entries);
+  }catch(err){
+    isSaving = false;
+    const saveBtn = document.getElementById('btn-save');
+    saveBtn.disabled = false;
+    saveBtn.textContent = '💾 Simpan Data Toko';
+    toast('❌ Penyimpanan HP penuh! Buka tab Daftar, sync/hapus data lama, lalu coba lagi');
+    return;
+  }
   toast('✅ Data toko tersimpan');
   resetForm();
 });
@@ -821,7 +853,14 @@ async function syncEntry(url, e){
       e.lastError = `Respon server bukan JSON: ${text.substring(0,150)}`;
       return false;
     }
-    if(data.ok){ e.synced = true; delete e.lastError; return true; }
+    if(data.ok){
+      e.synced = true;
+      delete e.lastError;
+      // Foto sudah aman di Google Drive, hapus dari penyimpanan lokal HP supaya tidak penuh
+      e.fotoKtp = null;
+      e.fotoKunjungan = null;
+      return true;
+    }
     e.lastError = data.error || 'Server menolak tanpa keterangan';
     return false;
   }catch(err){
