@@ -8,6 +8,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1f2e">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <title>Survey & Kunjungan Toko - Pulo Gadung</title>
 <style>
 :root{
@@ -164,6 +165,10 @@ textarea{min-height:70px;resize:vertical;}
         <input type="tel" inputmode="numeric" id="f-nik" placeholder="16 digit sesuai KTP" maxlength="16">
         <div class="warn-box" id="nik-error" style="display:none;">⚠️ NIK harus 16 digit angka</div>
       </div>
+      <div class="field">
+        <label id="f-nama-nik-label">Nama Terdaftar di NIK</label>
+        <input type="text" id="f-nama-nik" placeholder="Nama sesuai KTP">
+      </div>
     </div>
 
     <div class="card">
@@ -175,27 +180,27 @@ textarea{min-height:70px;resize:vertical;}
 
       <div class="field">
         <label>Provinsi</label>
-        <input type="text" id="f-provinsi" placeholder="Otomatis dari GPS">
+        <input type="text" id="f-provinsi" placeholder="Otomatis saat sync (atau isi manual)">
       </div>
       <div class="field">
         <label>Kota / Kabupaten</label>
-        <input type="text" id="f-kota" placeholder="Otomatis dari GPS">
+        <input type="text" id="f-kota" placeholder="Otomatis saat sync (atau isi manual)">
       </div>
       <div class="field">
         <label>Kecamatan</label>
-        <input type="text" id="f-kecamatan" placeholder="Otomatis dari GPS">
+        <input type="text" id="f-kecamatan" placeholder="Otomatis saat sync (atau isi manual)">
       </div>
       <div class="field">
         <label>Kelurahan</label>
-        <input type="text" id="f-kelurahan" placeholder="Otomatis dari GPS">
+        <input type="text" id="f-kelurahan" placeholder="Otomatis saat sync (atau isi manual)">
       </div>
       <div class="field">
         <label>Kode Pos</label>
-        <input type="text" inputmode="numeric" id="f-postal" placeholder="Otomatis dari GPS">
+        <input type="text" inputmode="numeric" id="f-postal" placeholder="Otomatis saat sync (atau isi manual)">
       </div>
       <div class="field">
         <label>Alamat Lengkap</label>
-        <textarea id="f-alamat" placeholder="Otomatis dari GPS, boleh disunting"></textarea>
+        <textarea id="f-alamat" placeholder="Otomatis saat sync (atau isi manual), boleh disunting"></textarea>
       </div>
     </div>
 
@@ -313,6 +318,7 @@ let picRequired = false;
 let gpsRequired = true;
 let hpRequired = false;
 let nikRequired = false;
+let namaNikRequired = false;
 let fotoKunjunganRequired = false;
 
 const PHONE_UPDATE_ITEM = 'Minta nomor HP/Telepon customer';
@@ -354,6 +360,7 @@ function showUpdateNotice(c){
   const gpsLabel = document.getElementById('f-gps-label');
   const hpLabel = document.getElementById('f-hp-label');
   const nikLabel = document.getElementById('f-nik-label');
+  const namaNikLabel = document.getElementById('f-nama-nik-label');
   const fotoHint = document.getElementById('foto-kunjungan-hint');
   listEl.innerHTML = '';
   const effectiveItems = getEffectiveUpdate(c);
@@ -376,10 +383,12 @@ function showUpdateNotice(c){
   hpRequired = itemsToCheck.includes(PHONE_UPDATE_ITEM);
   gpsRequired = itemsToCheck.includes(LATLNG_UPDATE_ITEM);
   nikRequired = itemsToCheck.includes(KTP_UPDATE_ITEM);
+  namaNikRequired = itemsToCheck.includes(KTP_UPDATE_ITEM);
   fotoKunjunganRequired = itemsToCheck.includes(GEOTAG_UPDATE_ITEM);
 
   hpLabel.innerHTML = hpRequired ? 'No. HP <span class="req">*</span>' : 'No. HP';
   nikLabel.innerHTML = nikRequired ? 'NIK <span class="req">*</span>' : 'NIK';
+  namaNikLabel.innerHTML = namaNikRequired ? 'Nama Terdaftar di NIK <span class="req">*</span>' : 'Nama Terdaftar di NIK';
   fotoHint.style.display = fotoKunjunganRequired ? 'block' : 'none';
 
   picLabel.innerHTML = picRequired ? 'PIC Toko <span class="req">*</span>' : 'PIC Toko';
@@ -555,6 +564,10 @@ hpInput.addEventListener('input', validateHp);
 hpInput.addEventListener('blur', validateHp);
 
 /* ============ GPS + REVERSE GEOCODE ============ */
+const GPS_ACCURACY_THRESHOLD = 75; // meter — di atas ini dianggap kurang akurat, minta konfirmasi/ulang
+let gpsAccuracyOk = false;
+let gpsLowAccuracyConfirmed = false;
+
 document.getElementById('btn-gps').addEventListener('click', ()=>{
   const box = document.getElementById('gps-box');
   const status = document.getElementById('gps-status');
@@ -562,39 +575,43 @@ document.getElementById('btn-gps').addEventListener('click', ()=>{
     status.textContent = '❌ GPS tidak didukung di perangkat ini';
     return;
   }
+  gpsLowAccuracyConfirmed = false;
   attemptGps(true);
 });
 
 function attemptGps(highAccuracy){
   const box = document.getElementById('gps-box');
   const status = document.getElementById('gps-status');
-  status.textContent = highAccuracy ? '📡 Mengambil lokasi (GPS presisi tinggi)...' : '📡 Mencoba ulang dengan mode lebih cepat...';
+  status.textContent = highAccuracy ? '📡 Mengambil lokasi (GPS presisi tinggi)...' : '📡 Mencoba ulang dengan mode lebih cepat (akurasi lebih rendah)...';
   navigator.geolocation.getCurrentPosition(
-    (pos)=> onGpsSuccess(pos, box, status),
+    (pos)=> onGpsSuccess(pos, box, status, highAccuracy),
     (err)=> onGpsError(err, box, status, highAccuracy),
     { enableHighAccuracy: highAccuracy, timeout: 30000, maximumAge: 10000 }
   );
 }
 
-async function onGpsSuccess(pos, box, status){
-  const { latitude, longitude } = pos.coords;
+function onGpsSuccess(pos, box, status, wasHighAccuracy){
+  const { latitude, longitude, accuracy } = pos.coords;
   gpsCoords = { lat: latitude, lng: longitude };
-  box.classList.add('ok');
-  status.innerHTML = `✅ <span class="gps-coords">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span>`;
-  status.innerHTML += ' <br><span style="color:var(--muted);">Mengambil alamat...</span>';
-  try{
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
-    const data = await res.json();
-    const a = data.address || {};
-    document.getElementById('f-provinsi').value = a.state || '';
-    document.getElementById('f-kota').value = a.city || a.county || a.city_district || '';
-    document.getElementById('f-kecamatan').value = a.suburb || a.city_district || a.subdistrict || '';
-    document.getElementById('f-kelurahan').value = a.village || a.neighbourhood || a.suburb || '';
-    document.getElementById('f-postal').value = a.postcode || '';
-    document.getElementById('f-alamat').value = data.display_name || '';
-    status.innerHTML = `✅ <span class="gps-coords">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span><br><span style="color:var(--accent2);">Alamat berhasil diambil, silakan periksa & sunting jika perlu</span>`;
-  }catch(err){
-    status.innerHTML += '<br><span style="color:var(--danger);">Gagal mengambil alamat otomatis, isi manual ya</span>';
+  const accRounded = Math.round(accuracy);
+
+  if(accuracy <= GPS_ACCURACY_THRESHOLD){
+    gpsAccuracyOk = true;
+    box.classList.add('ok');
+    status.innerHTML = `✅ <span class="gps-coords">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span> (akurasi ±${accRounded}m)<br><span style="color:var(--muted);">Alamat akan otomatis terisi belakangan saat sync ke Drive</span>`;
+  }else{
+    gpsAccuracyOk = false;
+    box.classList.remove('ok');
+    status.innerHTML = `⚠️ <span class="gps-coords">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span><br><span style="color:var(--warn);">Akurasi rendah (±${accRounded}m) — titik ini bisa meleset jauh dari lokasi asli. Coba pindah ke area terbuka lalu tekan "Ambil Lokasi GPS" lagi untuk hasil lebih presisi.</span>
+    <br><button class="btn btn-outline btn-sm" id="btn-force-gps" style="margin-top:8px;width:auto;padding:8px 14px;display:inline-flex;">Tetap pakai titik ini</button>`;
+    const forceBtn = document.getElementById('btn-force-gps');
+    if(forceBtn){
+      forceBtn.addEventListener('click', ()=>{
+        gpsLowAccuracyConfirmed = true;
+        box.classList.add('ok');
+        toast('Koordinat kurang akurat tetap dipakai sesuai konfirmasi');
+      });
+    }
   }
 }
 
@@ -664,12 +681,57 @@ function handleFile(e){
     photos[currentPhotoTarget] = compressed;
     box.classList.add('has-img');
     box.innerHTML = `<img src="${compressed}"><div class="lbl-wrap" style="position:relative;z-index:2;"><div class="lbl">✅ ${label}</div></div>`;
+
+    if(currentPhotoTarget === 'ktp'){
+      runKtpOcr(compressed);
+    }
   };
   reader.readAsDataURL(file);
   e.target.value = '';
 }
 document.getElementById('file-camera').addEventListener('change', handleFile);
 document.getElementById('file-gallery').addEventListener('change', handleFile);
+
+/* ============ OCR FOTO KTP (baca otomatis NIK & Nama, gratis via Tesseract.js) ============ */
+function parseKtpText(text){
+  const nikMatch = text.match(/\b\d{16}\b/);
+  const nik = nikMatch ? nikMatch[0] : '';
+  let nama = '';
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+  for(let i=0;i<lines.length;i++){
+    if(/nama/i.test(lines[i]) && !/nik/i.test(lines[i])){
+      const m = lines[i].match(/nama\s*[:\-]?\s*(.+)/i);
+      if(m && m[1] && m[1].trim().length > 1){ nama = m[1].trim(); break; }
+      if(lines[i+1] && lines[i+1].trim().length > 1){ nama = lines[i+1].trim(); break; }
+    }
+  }
+  return { nik, nama };
+}
+
+async function runKtpOcr(imageDataUrl){
+  toast('⏳ Membaca NIK & Nama dari foto KTP...');
+  try{
+    const result = await Tesseract.recognize(imageDataUrl, 'ind', { logger: ()=>{} });
+    const { nik, nama } = parseKtpText(result.data.text || '');
+    let filled = [];
+    if(nik){
+      document.getElementById('f-nik').value = nik;
+      validateNik();
+      filled.push('NIK');
+    }
+    if(nama){
+      document.getElementById('f-nama-nik').value = nama.toUpperCase();
+      filled.push('Nama');
+    }
+    if(filled.length > 0){
+      toast(`✅ ${filled.join(' & ')} terbaca otomatis — cek lagi ya sebelum simpan`);
+    }else{
+      toast('⚠️ Tidak terbaca otomatis, isi NIK & Nama manual ya');
+    }
+  }catch(err){
+    toast('⚠️ Gagal baca otomatis (cek koneksi internet), isi manual ya');
+  }
+}
 
 /* ============ STORAGE ============ */
 function getEntries(){
@@ -686,11 +748,13 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
   if(!fsr){ toast('⚠️ Pilih Nama FSR dulu'); return; }
   if(!selectedCustomer){ toast('⚠️ Pilih ID Customer dulu'); return; }
   if(gpsRequired && !gpsCoords){ toast('⚠️ Ambil koordinat GPS dulu (wajib untuk toko/filter ini)'); return; }
+  if(gpsRequired && gpsCoords && !gpsAccuracyOk && !gpsLowAccuracyConfirmed){ toast('⚠️ Akurasi GPS rendah — coba ambil ulang, atau konfirmasi "Tetap pakai titik ini"'); return; }
   if(!validateNik()){ toast('⚠️ NIK harus 16 digit angka'); return; }
   if(!validateHp()){ toast('⚠️ No HP harus diawali angka 0'); return; }
   if(picRequired && document.getElementById('f-pic').value.trim().length === 0){ toast('⚠️ PIC Toko wajib diisi untuk toko ini'); return; }
   if(hpRequired && document.getElementById('f-hp').value.trim().length === 0){ toast('⚠️ No HP wajib diisi untuk toko ini'); return; }
   if(nikRequired && document.getElementById('f-nik').value.trim().length === 0){ toast('⚠️ NIK wajib diisi untuk toko ini'); return; }
+  if(namaNikRequired && document.getElementById('f-nama-nik').value.trim().length === 0){ toast('⚠️ Nama Terdaftar di NIK wajib diisi untuk toko ini'); return; }
   if(fotoKunjunganRequired && !photos.kunjungan){ toast('⚠️ Foto Kunjungan wajib diambil untuk toko ini'); return; }
 
   isSaving = true;
@@ -701,10 +765,11 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
   // Tentukan item mana yang berhasil dilengkapi di kunjungan ini (dari sisa kebutuhan toko ini)
   const noHpVal = document.getElementById('f-hp').value.trim();
   const nikVal = document.getElementById('f-nik').value.trim();
+  const namaNikVal = document.getElementById('f-nama-nik').value.trim();
   const effectiveNow = getEffectiveUpdate(selectedCustomer);
   const addressedItems = [];
   if(effectiveNow.includes(PHONE_UPDATE_ITEM) && noHpVal) addressedItems.push(PHONE_UPDATE_ITEM);
-  if(effectiveNow.includes(KTP_UPDATE_ITEM) && nikVal) addressedItems.push(KTP_UPDATE_ITEM);
+  if(effectiveNow.includes(KTP_UPDATE_ITEM) && nikVal && namaNikVal) addressedItems.push(KTP_UPDATE_ITEM);
   if(effectiveNow.includes(LATLNG_UPDATE_ITEM) && gpsCoords) addressedItems.push(LATLNG_UPDATE_ITEM);
   if(effectiveNow.includes(GEOTAG_UPDATE_ITEM) && photos.kunjungan) addressedItems.push(GEOTAG_UPDATE_ITEM);
 
@@ -719,6 +784,7 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
     picToko: document.getElementById('f-pic').value,
     noHp: document.getElementById('f-hp').value,
     nik: document.getElementById('f-nik').value,
+    namaNik: document.getElementById('f-nama-nik').value,
     gpsLat: gpsCoords ? gpsCoords.lat : '',
     gpsLng: gpsCoords ? gpsCoords.lng : '',
     provinsi: document.getElementById('f-provinsi').value,
@@ -757,13 +823,17 @@ function resetForm(){
   saveBtn.textContent = '💾 Simpan Data Toko';
   picRequired = false;
   gpsRequired = true;
+  gpsAccuracyOk = false;
+  gpsLowAccuracyConfirmed = false;
   hpRequired = false;
   nikRequired = false;
+  namaNikRequired = false;
   fotoKunjunganRequired = false;
   document.getElementById('f-gps-label').innerHTML = ' <span class="req">*</span>';
   document.getElementById('f-pic-label').innerHTML = 'PIC Toko';
   document.getElementById('f-hp-label').innerHTML = 'No. HP';
   document.getElementById('f-nik-label').innerHTML = 'NIK';
+  document.getElementById('f-nama-nik-label').innerHTML = 'Nama Terdaftar di NIK';
   document.getElementById('foto-kunjungan-hint').style.display = 'none';
   nikError.style.display = 'none';
   hpError.style.display = 'none';
@@ -779,6 +849,7 @@ function resetForm(){
   document.getElementById('f-pic').value = '';
   document.getElementById('f-hp').value = '';
   document.getElementById('f-nik').value = '';
+  document.getElementById('f-nama-nik').value = '';
   document.getElementById('f-provinsi').value = '';
   document.getElementById('f-kota').value = '';
   document.getElementById('f-kecamatan').value = '';
