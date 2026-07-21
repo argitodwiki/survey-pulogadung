@@ -320,6 +320,32 @@ const LATLNG_UPDATE_ITEM = 'Perbaiki data alamat dan Latitude/Longitude';
 const KTP_UPDATE_ITEM = 'Perbaiki & Upload ulang KTP/NPWP';
 const GEOTAG_UPDATE_ITEM = 'Foto Outlet menggunakan Geotag';
 
+/* ============ RESOLVED ITEMS MAP (item yang sudah pernah dilengkapi FSR untuk sebuah toko) ============ */
+let resolvedMap = {};
+try{
+  resolvedMap = JSON.parse(localStorage.getItem('resolved_map') || '{}');
+}catch(e){ resolvedMap = {}; }
+
+async function loadResolvedMap(){
+  try{
+    const res = await fetch(getScriptUrl(), { method:'POST', body: JSON.stringify({ action:'getStatus' }) });
+    const text = await res.text();
+    const data = JSON.parse(text);
+    if(data.ok && data.data){
+      resolvedMap = data.data;
+      localStorage.setItem('resolved_map', JSON.stringify(resolvedMap));
+    }
+  }catch(err){ /* offline, pakai cache lokal terakhir */ }
+}
+loadResolvedMap();
+
+// Kembalikan daftar update yang MASIH tersisa untuk toko ini (sudah dikurangi item yang pernah dilengkapi)
+function getEffectiveUpdate(c){
+  if(!c || !Array.isArray(c.update)) return [];
+  const resolved = resolvedMap[c.id] || [];
+  return c.update.filter(item => resolved.indexOf(item) === -1);
+}
+
 /* ============ UPDATE DATA NOTICE ============ */
 function showUpdateNotice(c){
   const wrap = document.getElementById('update-notice-wrap');
@@ -330,8 +356,9 @@ function showUpdateNotice(c){
   const nikLabel = document.getElementById('f-nik-label');
   const fotoHint = document.getElementById('foto-kunjungan-hint');
   listEl.innerHTML = '';
-  if(c && Array.isArray(c.update) && c.update.length > 0){
-    c.update.forEach(item=>{
+  const effectiveItems = getEffectiveUpdate(c);
+  if(effectiveItems.length > 0){
+    effectiveItems.forEach(item=>{
       const li = document.createElement('li');
       li.textContent = item;
       listEl.appendChild(li);
@@ -342,9 +369,9 @@ function showUpdateNotice(c){
   }
 
   // Wajib isi mengikuti FOKUS jenis update yang dipilih FSR (filter dropdown).
-  // Kalau FSR tidak pilih filter spesifik (Semua Toko), fallback ke seluruh kebutuhan toko ini.
+  // Kalau FSR tidak pilih filter spesifik (Semua Toko), fallback ke seluruh kebutuhan toko ini (yang masih tersisa).
   const focusFilter = updateFilter.value;
-  const itemsToCheck = focusFilter ? [focusFilter] : ((c && c.update) || []);
+  const itemsToCheck = focusFilter ? [focusFilter] : effectiveItems;
   picRequired = itemsToCheck.includes(PHONE_UPDATE_ITEM);
   hpRequired = itemsToCheck.includes(PHONE_UPDATE_ITEM);
   gpsRequired = itemsToCheck.includes(LATLNG_UPDATE_ITEM);
@@ -400,7 +427,7 @@ function currentFsrCustomers(){
   const filterVal = updateFilter.value;
   const all = FSR_DATA[fsr].customers;
   if(!filterVal) return all;
-  return all.filter(c => Array.isArray(c.update) && c.update.includes(filterVal));
+  return all.filter(c => getEffectiveUpdate(c).includes(filterVal));
 }
 
 fsrSelect.addEventListener('change', ()=>{
@@ -425,7 +452,7 @@ fsrSelect.addEventListener('change', ()=>{
   // Bangun ulang pilihan filter jenis update, khusus untuk toko-toko FSR ini saja
   const typeSet = new Set();
   FSR_DATA[fsr].customers.forEach(c=>{
-    (c.update || []).forEach(item => typeSet.add(item));
+    getEffectiveUpdate(c).forEach(item => typeSet.add(item));
   });
   updateFilter.innerHTML = '<option value="">— Semua Toko —</option>';
   Array.from(typeSet).sort().forEach(item=>{
@@ -671,6 +698,16 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
   saveBtn.disabled = true;
   saveBtn.textContent = '⏳ Menyimpan...';
 
+  // Tentukan item mana yang berhasil dilengkapi di kunjungan ini (dari sisa kebutuhan toko ini)
+  const noHpVal = document.getElementById('f-hp').value.trim();
+  const nikVal = document.getElementById('f-nik').value.trim();
+  const effectiveNow = getEffectiveUpdate(selectedCustomer);
+  const addressedItems = [];
+  if(effectiveNow.includes(PHONE_UPDATE_ITEM) && noHpVal) addressedItems.push(PHONE_UPDATE_ITEM);
+  if(effectiveNow.includes(KTP_UPDATE_ITEM) && nikVal) addressedItems.push(KTP_UPDATE_ITEM);
+  if(effectiveNow.includes(LATLNG_UPDATE_ITEM) && gpsCoords) addressedItems.push(LATLNG_UPDATE_ITEM);
+  if(effectiveNow.includes(GEOTAG_UPDATE_ITEM) && photos.kunjungan) addressedItems.push(GEOTAG_UPDATE_ITEM);
+
   const entry = {
     localId: 'e' + Date.now(),
     createdAt: new Date().toISOString(),
@@ -693,6 +730,7 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
     catatan: document.getElementById('f-catatan').value,
     fotoKtp: photos.ktp,
     fotoKunjungan: photos.kunjungan,
+    addressedItems: addressedItems,
     synced: false
   };
 
@@ -859,6 +897,13 @@ async function syncEntry(url, e){
       // Foto sudah aman di Google Drive, hapus dari penyimpanan lokal HP supaya tidak penuh
       e.fotoKtp = null;
       e.fotoKunjungan = null;
+      // Update resolvedMap lokal supaya notifikasi langsung menyesuaikan tanpa perlu fetch ulang
+      if(Array.isArray(e.addressedItems) && e.addressedItems.length > 0 && e.idCustomer){
+        const existing = resolvedMap[e.idCustomer] || [];
+        const merged = Array.from(new Set([...existing, ...e.addressedItems]));
+        resolvedMap[e.idCustomer] = merged;
+        localStorage.setItem('resolved_map', JSON.stringify(resolvedMap));
+      }
       return true;
     }
     e.lastError = data.error || 'Server menolak tanpa keterangan';
