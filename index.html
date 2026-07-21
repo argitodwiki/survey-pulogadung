@@ -169,6 +169,14 @@ textarea{min-height:70px;resize:vertical;}
         <label id="f-nama-nik-label">Nama Terdaftar di NIK</label>
         <input type="text" id="f-nama-nik" placeholder="Nama sesuai KTP">
       </div>
+      <div class="field">
+        <label>No. NPWP</label>
+        <input type="text" inputmode="numeric" id="f-npwp" placeholder="Nomor NPWP (opsional)">
+      </div>
+      <div class="field">
+        <label>Alamat Faktur Pajak</label>
+        <textarea id="f-alamat-faktur" placeholder="Alamat sesuai faktur pajak (opsional)"></textarea>
+      </div>
     </div>
 
     <div class="card">
@@ -785,6 +793,8 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
     noHp: document.getElementById('f-hp').value,
     nik: document.getElementById('f-nik').value,
     namaNik: document.getElementById('f-nama-nik').value,
+    npwp: document.getElementById('f-npwp').value,
+    alamatFaktur: document.getElementById('f-alamat-faktur').value,
     gpsLat: gpsCoords ? gpsCoords.lat : '',
     gpsLng: gpsCoords ? gpsCoords.lng : '',
     provinsi: document.getElementById('f-provinsi').value,
@@ -850,6 +860,8 @@ function resetForm(){
   document.getElementById('f-hp').value = '';
   document.getElementById('f-nik').value = '';
   document.getElementById('f-nama-nik').value = '';
+  document.getElementById('f-npwp').value = '';
+  document.getElementById('f-alamat-faktur').value = '';
   document.getElementById('f-provinsi').value = '';
   document.getElementById('f-kota').value = '';
   document.getElementById('f-kecamatan').value = '';
